@@ -30,6 +30,7 @@ from .qt_console import QtConsole
 from .qt_viewer_dock_widget import QtViewerDockWidget
 from .qt_about_keybindings import QtAboutKeybindings
 from .._vispy import create_vispy_visual
+from .._vispy.vispy_interaction_box import VispyInteractionBox
 
 
 class QtViewer(QSplitter):
@@ -154,6 +155,10 @@ class QtViewer(QSplitter):
         self.view = self.canvas.central_widget.add_view()
         self._update_camera()
 
+        self._interaction_box_visual = VispyInteractionBox(viewer)
+        self._interaction_box_visual.node.parent = self.view.scene
+        self._interaction_box_visual.node.order = len(self.viewer.layers) + 1
+
         main_widget = QWidget()
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(10, 22, 10, 2)
@@ -222,6 +227,8 @@ class QtViewer(QSplitter):
         vispy_layer.camera = self.view.camera
         vispy_layer.node.parent = self.view.scene
         vispy_layer.order = len(layers)
+        self._interaction_box_visual.node.order = len(layers) + 1
+
         self.layer_to_visual[layer] = vispy_layer
 
     def _remove_layer(self, event):
