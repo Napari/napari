@@ -22,8 +22,8 @@ class Labels(Image):
 
     Parameters
     ----------
-    data : array or list of array
-        Labels data as an array or multiscale.
+    data : np.ndarray or list of np.ndarray
+        Labels data as an array or pyramid.
     num_colors : int
         Number of unique colors to use in colormap.
     properties : dict {str: array (N,)}, DataFrame
@@ -57,7 +57,7 @@ class Labels(Image):
 
     Attributes
     ----------
-    data : array
+    data : np.ndarray
         Integer valued label data. Can be N dimensional. Every pixel contains
         an integer ID corresponding to the region it belongs to. The label 0 is
         rendered as transparent.
@@ -108,7 +108,7 @@ class Labels(Image):
 
     Extended Summary
     ----------
-    _data_raw : array (N, M)
+    _data_raw : np.ndarray (N, M)
         2D labels data for the currently viewed slice.
     _selected_color : 4-tuple or None
         RGBA tuple of the color of the selected label, or None if the
@@ -441,7 +441,7 @@ class Labels(Image):
 
         Parameters
         -------
-        raw : array or int
+        raw : np.ndarray or int
             Raw integer input image.
 
         Returns

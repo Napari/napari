@@ -1,12 +1,15 @@
 import inspect
 import itertools
+from abc import ABC, abstractmethod
 import os
 from functools import lru_cache
 from logging import getLogger
-from typing import Any, Dict, List, Optional, Sequence, Set, Union
+from typing import Any, Dict, List, Optional, Set, Sequence, Union, TypeVar
 
 import numpy as np
 
+from napari.layers.utils.array_interface import ArrayInterface
+from . import Dims
 from .. import layers
 from ..layers.image._image_utils import guess_labels, guess_multiscale
 from ..plugins.io import read_data_with_plugins
@@ -21,8 +24,10 @@ from ..utils.misc import (
 
 logger = getLogger(__name__)
 
+LayerType = TypeVar("LayerType", bound=layers.Layer)
 
-class AddLayersMixin:
+
+class AddLayersMixin(ABC):
     """A mixin that adds add_* methods for adding layers to the ViewerModel.
 
     Each method corresponds to adding one or more layers to the viewer.
@@ -35,7 +40,12 @@ class AddLayersMixin:
     easier to read and make these methods easier to maintain.
     """
 
-    def add_layer(self, layer: layers.Layer) -> layers.Layer:
+    def __init__(self):
+        super().__init__()
+        self.layers = []
+        self.dims = Dims()
+
+    def add_layer(self, layer: LayerType) -> LayerType:
         """Add a layer to the viewer.
 
         Parameters
@@ -68,7 +78,7 @@ class AddLayersMixin:
 
     def add_image(
         self,
-        data=None,
+        data: Union[ArrayInterface, List[ArrayInterface]],
         *,
         channel_axis=None,
         rgb=None,
@@ -92,7 +102,7 @@ class AddLayersMixin:
 
         Parameters
         ----------
-        data : array or list of array
+        data : ArrayInterface or list of ArrayInterface
             Image data. Can be N dimensional. If the last dimension has length
             3 or 4 can be interpreted as RGB or RGBA if rgb is `True`. If a
             list and arrays are decreasing in shape then the data is treated as
@@ -256,7 +266,7 @@ class AddLayersMixin:
                 else:
                     kwargs[key] = iter(ensure_iterable(val))
 
-            layer_list = []
+            layer_list: List[layers.Image] = []
             for i in range(n_channels):
                 if multiscale:
                     image = [
@@ -266,8 +276,9 @@ class AddLayersMixin:
                 else:
                     image = np.take(data, i, axis=channel_axis)
                 i_kwargs = {k: next(v) for k, v in kwargs.items()}
-                layer = self.add_layer(layers.Image(image, **i_kwargs))
-                layer_list.append(layer)
+                layer_list.append(
+                    self.add_layer(layers.Image(image, **i_kwargs))
+                )
             return layer_list
 
     def add_points(
@@ -299,9 +310,9 @@ class AddLayersMixin:
 
         Parameters
         ----------
-        data : array (N, D)
+        data : np.ndarray (N, D)
             Coordinates for N points in D dimensions.
-        properties : dict {str: array (N,)}, DataFrame
+        properties : dict {str: np.ndarray (N,)}, DataFrame
             Properties for each point. Each property should be an array of length N,
             where N is the number of points.
         symbol : str
@@ -397,8 +408,7 @@ class AddLayersMixin:
             blending=blending,
             visible=visible,
         )
-        self.add_layer(layer)
-        return layer
+        return self.add_layer(layer)
 
     def add_labels(
         self,
@@ -433,8 +443,8 @@ class AddLayersMixin:
 
         Parameters
         ----------
-        data : array or list of array
-            Labels data as an array or multiscale.
+        data : np.ndarray or list of np.ndarray
+            Labels data as an array or pyramid.
         num_colors : int
             Number of unique colors to use in colormap.
         properties : dict {str: array (N,)}, DataFrame
@@ -685,13 +695,13 @@ class AddLayersMixin:
 
         Parameters
         ----------
-        data : (N, 2, D) or (N1, N2, ..., ND, D) array
+        data : (N, 2, D) or (N1, N2, ..., ND, D) np.ndarray
             An (N, 2, D) array is interpreted as "coordinate-like" data and a
             list of N vectors with start point and projections of the vector in
             D dimensions. An (N1, N2, ..., ND, D) array is interpreted as
             "image-like" data where there is a length D vector of the
             projections at each pixel.
-        properties : dict {str: array (N,)}, DataFrame
+        properties : dict {str: np.ndarray (N,)}, DataFrame
             Properties for each vector. Each property should be an array of length N,
             where N is the number of vectors.
         edge_width : float
@@ -919,6 +929,7 @@ class AddLayersMixin:
         A typical use case might be to upack a tuple of layer data with a
         specified layer_type.
 
+        >>> import napari
         >>> viewer = napari.Viewer()
         >>> data = (
         ...     np.random.random((10, 2)) * 20,
@@ -962,6 +973,42 @@ class AddLayersMixin:
                 raise exc
 
         return layer
+
+    @abstractmethod
+    def _update_active_layer(self, event):
+        pass
+
+    @abstractmethod
+    def _update_status(self, event):
+        pass
+
+    @abstractmethod
+    def _update_help(self, event):
+        pass
+
+    @abstractmethod
+    def _update_interactive(self, event):
+        pass
+
+    @abstractmethod
+    def _update_cursor(self, event):
+        pass
+
+    @abstractmethod
+    def _update_cursor_size(self, event):
+        pass
+
+    @abstractmethod
+    def _on_layers_change(self, event):
+        pass
+
+    @abstractmethod
+    def _update_layers(self, event=None, layers=None):
+        pass
+
+    @abstractmethod
+    def reset_view(self, event=None):
+        pass
 
 
 @lru_cache(maxsize=1)
