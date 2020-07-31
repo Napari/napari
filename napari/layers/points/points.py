@@ -1,3 +1,4 @@
+from collections import defaultdict
 from typing import Union, Dict, Tuple, List
 from copy import copy, deepcopy
 from itertools import cycle
@@ -383,6 +384,12 @@ class Points(Layer):
 
         self.refresh_colors()
 
+        self._tree = None
+        self._trees = {}
+        self._build_tree()
+        self.dims.events.order.connect(self._build_tree)
+        self.dims.events.range.connect(self._clear_trees)
+
         self.size = size
         # set the current_* properties
         if len(data) > 0:
@@ -405,6 +412,56 @@ class Points(Layer):
 
         # Trigger generation of view slice and thumbnail
         self._update_dims()
+
+    def _build_tree(self, event=None):
+        """Assign each point to an integer key for slicing, for each dimension
+
+        Parameters:
+        -----------
+        event: Event
+            event triggered by reordering displayed dimensions
+        """
+        not_displayed = tuple(self.dims.not_displayed)
+        if not_displayed in self._trees:
+            self._tree = self._trees[not_displayed]
+            return
+
+        ranges = [
+            (start, stop + 1)
+            for i, (start, stop) in enumerate(self._get_extent())
+            if i in not_displayed
+        ]
+        moss = defaultdict(list)
+        indices = []
+        # allocate each point to a bin along each not displayed dimension
+        for i, ax in enumerate(not_displayed):
+            indices.append(
+                np.digitize(
+                    self.data[:, ax], np.arange(*ranges[i]), right=True
+                )
+            )
+        # assign the newly computed points into the grid at the correct slice
+        for i, idx in enumerate(zip(*indices)):
+            moss[idx].append(i)
+
+        self._tree = moss
+        self._trees[not_displayed] = moss
+
+    def _clear_trees(self, event=None):
+        """Clear cache of slice trees
+
+        Parameters
+        ----------
+        event : Event
+            event triggered by changing range of dims
+        """
+        axis = event.axis
+        keys_to_delete = []
+        for key in self._trees:
+            if axis in key:
+                keys_to_delete.append(key)
+        for key in keys_to_delete:
+            del self._trees[key]
 
     def _initialize_current_color_for_empty_layer(
         self, color: ColorType, attribute: str
@@ -649,8 +706,8 @@ class Points(Layer):
         """Determine number of dimensions of the layer."""
         return self.data.shape[1]
 
-    def _get_extent(self) -> List[Tuple[int, int, int]]:
-        """Determine ranges for slicing given by (min, max, step)."""
+    def _get_extent(self) -> List[Tuple[int, int]]:
+        """Determine ranges for slicing given by (min, max)."""
         if len(self.data) == 0:
             maxs = np.ones(self.data.shape[1], dtype=int)
             mins = np.zeros(self.data.shape[1], dtype=int)
@@ -1453,9 +1510,9 @@ class Points(Layer):
                 slice_indices = np.where(matches)[0].astype(int)
                 return slice_indices, scale
             else:
-                data = self.data[:, not_disp].astype('int')
-                matches = np.all(data == indices[not_disp], axis=1)
-                slice_indices = np.where(matches)[0].astype(int)
+                # ranges = [r for i, r in enumerate(self.dims.range) if i in not_disp]
+                # key = tuple(np.digitize(idx, np.arange(*ranges[i])) for i, idx in enumerate(indices))
+                slice_indices = np.array(self._tree[tuple(indices[not_disp])])
                 return slice_indices, 1
         else:
             return [], []
