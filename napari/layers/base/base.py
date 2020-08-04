@@ -1,6 +1,7 @@
 import warnings
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
+from functools import reduce
 from typing import List, Optional
 
 import numpy as np
@@ -193,6 +194,8 @@ class Layer(KeymapProvider, ABC):
         self._thumbnail = np.zeros(self._thumbnail_shape, dtype=np.uint8)
         self._update_properties = True
         self._name = ''
+        self._parent = None
+        self._children = None
         self.events = EmitterGroup(
             source=self,
             auto_connect=True,
@@ -238,12 +241,22 @@ class Layer(KeymapProvider, ABC):
         cls = type(self)
         return f"<{cls.__name__} layer {repr(self.name)} at {hex(id(self))}>"
 
+    def __iter__(self):
+        yield self
+
+    def _up_through_parents(self):
+        """Propagates up from the layer through all its parent layergroups."""
+        layer = self
+        while layer is not None:
+            yield layer
+            layer = layer.parent
+
     @classmethod
     def _basename(cls):
         return f'{cls.__name__}'
 
     @property
-    def name(self):
+    def name(self) -> str:
         """str: Unique name of the layer."""
         return self._name
 
@@ -257,7 +270,7 @@ class Layer(KeymapProvider, ABC):
         self.events.name()
 
     @property
-    def opacity(self):
+    def opacity(self) -> float:
         """float: Opacity value between 0.0 and 1.0.
         """
         return self._opacity
@@ -273,6 +286,16 @@ class Layer(KeymapProvider, ABC):
         self._update_thumbnail()
         self.status = format_float(self.opacity)
         self.events.opacity()
+
+    @property
+    def effective_opacity(self) -> float:
+        """float: Effective opacity value, scaled by parent layergroups opacity
+
+        Multiplies layer opacity with the opacity of all its parent layergroups
+        """
+        return reduce(
+            lambda x, y: x * y, [i.opacity for i in self._up_through_parents()]
+        )
 
     @property
     def blending(self):
@@ -299,8 +322,8 @@ class Layer(KeymapProvider, ABC):
         self.events.blending()
 
     @property
-    def visible(self):
-        """bool: Whether the visual is currently being displayed."""
+    def visible(self) -> bool:
+        """Whether the visual is currently being displayed."""
         return self._visible
 
     @visible.setter
@@ -314,7 +337,16 @@ class Layer(KeymapProvider, ABC):
             self.editable = False
 
     @property
-    def editable(self):
+    def effective_visibility(self) -> bool:
+        """Whether visual is displayed, taking layergroup parents into account.
+
+        Returns True if the layer and all parent layergroups are visible,
+        and returns False otherwise.
+        """
+        return all([i.visible for i in self._up_through_parents()])
+
+    @property
+    def editable(self) -> bool:
         """bool: Whether the current layer data is editable from the viewer."""
         return self._editable
 
@@ -371,6 +403,14 @@ class Layer(KeymapProvider, ABC):
             return
         self._position = position
         self._update_coordinates()
+
+    @property
+    def parent(self):
+        return self._parent
+
+    @parent.setter
+    def parent(self, parent):
+        self._parent = parent
 
     def _update_dims(self, event=None):
         """Updates dims model, which is useful after data has been changed."""
