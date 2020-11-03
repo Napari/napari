@@ -22,6 +22,7 @@ from .._constants import LoopMode
 from ..dialogs.qt_modal import QtPopup
 from ..qthreading import _new_worker_qthread
 from .qt_scrollbar import ModifiedScrollBar
+from .qt_range_slider import QHRangeSlider
 
 
 class QtDimSliderWidget(QWidget):
@@ -120,6 +121,16 @@ class QtDimSliderWidget(QWidget):
         """
         self.dims.set_current_step(self.axis, value)
 
+    def _interval_values_changed(self, values):
+        """Interval slider changed to these new values
+        """
+        # Set step of dims to midpoints (rounding and clamping is done in dims.set_current_step)
+        slider_midpoint = sum(values) / len(values)
+        self.dims.set_current_step(self.axis, slider_midpoint)
+
+        # Set interval of dims
+        self.dims.set_interval(self.axis, values)
+
     def _create_range_slider_widget(self):
         """Creates a range slider widget for a given axis."""
         # Set the maximum values of the range slider to be one step less than
@@ -142,6 +153,34 @@ class QtDimSliderWidget(QWidget):
         # linking focus listener to the last used:
         slider.sliderPressed.connect(slider_focused_listener)
         self.slider = slider
+
+    def _create_interval_slider_widget(self):
+        """Creates an interval slider widget with two handles for a given axis."""
+        # Initialise slider
+        slider = QHRangeSlider()
+        slider.setFocusPolicy(Qt.NoFocus)
+
+        # Set min and max of slider range to match data range
+        data_range = 0, self.dims.nsteps[self.axis] - 1
+        slider.setRange(data_range)
+
+        # Set steps
+        #slider.setSingleStep(1) # QHRangeSlider doesn't have these methods
+        #slider.setPageStep(1)
+
+        # Set min and max for slider handles
+        slider.setValues(self.dims.interval[self.axis])
+
+        # Listener to be used for sending events back to model:
+        slider.valuesChanged.connect(self._interval_values_changed) # TODO: check whether this needs changing
+
+        def slider_focused_listener():
+            self.dims.last_used = self.axis
+
+        # linking focus listener to the last used:
+        #slider.sliderPressed.connect(slider_focused_listener)
+
+        self.interval_slider = slider
 
     def _create_play_button_widget(self):
         """Creates the actual play button, which has the modal popup."""
