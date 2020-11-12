@@ -88,7 +88,6 @@ class ViewerModel(AddLayersMixin, KeymapHandler, KeymapProvider):
         self.theme = 'dark'
 
         self.grid.events.update.connect(self.reset_view)
-        self.grid.events.update.connect(self._on_grid_change)
         self.dims.events.ndisplay.connect(self._update_layers)
         self.dims.events.ndisplay.connect(self.reset_view)
         self.dims.events.order.connect(self._update_layers)
@@ -96,7 +95,6 @@ class ViewerModel(AddLayersMixin, KeymapHandler, KeymapProvider):
         self.dims.events.current_step.connect(self._update_layers)
         self.cursor.events.position.connect(self._on_cursor_position_change)
         self.layers.events.changed.connect(self._update_active_layer)
-        self.layers.events.changed.connect(self._on_grid_change)
         self.layers.events.changed.connect(self._on_layers_change)
 
         self.keymap_providers = [self]
@@ -159,24 +157,24 @@ class ViewerModel(AddLayersMixin, KeymapHandler, KeymapProvider):
         warnings.warn(
             (
                 "The viewer.grid_size parameter is deprecated and will be removed after version 0.4.3."
-                " Instead you should use viewer.grid.size"
+                " Instead you should use viewer.grid.shape"
             ),
             category=DeprecationWarning,
             stacklevel=2,
         )
-        return self.grid.size
+        return self.grid.shape
 
     @grid_size.setter
     def grid_size(self, grid_size):
         warnings.warn(
             (
                 "The viewer.grid_size parameter is deprecated and will be removed after version 0.4.3."
-                " Instead you should use viewer.grid.size"
+                " Instead you should use viewer.grid.shape"
             ),
             category=DeprecationWarning,
             stacklevel=2,
         )
-        self.grid.size = grid_size
+        self.grid.shape = grid_size
 
     @property
     def grid_stride(self):
@@ -303,10 +301,12 @@ class ViewerModel(AddLayersMixin, KeymapHandler, KeymapProvider):
         extent = self._sliced_extent_world
         scene_size = extent[1] - extent[0]
         corner = extent[0]
-        grid_size = list(self.grid.actual_size(len(self.layers)))
-        if len(scene_size) > len(grid_size):
-            grid_size = [1] * (len(scene_size) - len(grid_size)) + grid_size
-        size = np.multiply(scene_size, grid_size)
+        grid_shape = list(self.grid.actual_shape(len(self.layers)))
+        self.grid.size = tuple(scene_size[-2:])
+        if len(scene_size) > len(grid_shape):
+            grid_shape = [1] * (len(scene_size) - len(grid_shape)) + grid_shape
+        size = np.multiply(scene_size, grid_shape)
+
         center = np.add(corner, np.divide(size, 2))[-self.dims.ndisplay :]
         center = [0] * (self.dims.ndisplay - len(center)) + list(center)
 
@@ -433,14 +433,17 @@ class ViewerModel(AddLayersMixin, KeymapHandler, KeymapProvider):
 
     def _on_cursor_position_change(self, event):
         """Set the layer cursor position."""
-        for layer in self.layers:
-            layer.position = self.cursor.position
-
-    def _on_grid_change(self, event):
-        """Arrange the current layers is a 2D grid."""
         for i, layer in enumerate(self.layers[::-1]):
-            i_row, i_column = self.grid.position(i, len(self.layers))
-            self._subplot(layer, (i_row, i_column))
+            # Offset the position of the cursor if in grid mode
+            if self.grid.enabled:
+                grid_position = self.grid.position(i, len(self.layers))
+                offset = np.multiply(grid_position, self.grid.size)
+                position = list(self.cursor.position)
+                position[self.dims.displayed[-1]] -= offset[-1]
+                position[self.dims.displayed[-2]] -= offset[-2]
+                layer.position = position
+            else:
+                layer.position = self.cursor.position
 
     def grid_view(self, n_row=None, n_column=None, stride=1):
         """Arrange the current layers is a 2D grid.
@@ -464,7 +467,7 @@ class ViewerModel(AddLayersMixin, KeymapHandler, KeymapProvider):
             (
                 "The viewer.grid_view method is deprecated and will be removed after version 0.4.3."
                 " Instead you should use the viewer.grid.enabled = Turn to turn on the grid view,"
-                " and viewer.grid.size and viewer.grid.stride to set the size and stride of the"
+                " and viewer.grid.shape and viewer.grid.stride to set the size and stride of the"
                 " grid respectively."
             ),
             category=DeprecationWarning,
@@ -475,7 +478,7 @@ class ViewerModel(AddLayersMixin, KeymapHandler, KeymapProvider):
             n_row = -1
         if n_column is None:
             n_column = -1
-        self.grid.size = (n_row, n_column)
+        self.grid.shape = (n_row, n_column)
         self.grid.enabled = True
 
     def stack_view(self):
@@ -490,25 +493,6 @@ class ViewerModel(AddLayersMixin, KeymapHandler, KeymapProvider):
             stacklevel=2,
         )
         self.grid.enabled = False
-
-    def _subplot(self, layer, position):
-        """Shift a layer to a specified position in a 2D grid.
-
-        Parameters
-        ----------
-        layer : napari.layers.Layer
-            Layer that is to be moved.
-        position : 2-tuple of int
-            New position of layer in grid.
-        size : 2-tuple of int
-            Size of the grid that is being used.
-        """
-        extent = self._sliced_extent_world
-        scene_shift = extent[1] - extent[0] + 1
-        translate_2d = np.multiply(scene_shift[-2:], position)
-        translate = [0] * layer.ndim
-        translate[-2:] = translate_2d
-        layer.translate_grid = translate
 
     @property
     def experimental(self):

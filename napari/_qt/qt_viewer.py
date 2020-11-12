@@ -238,6 +238,11 @@ class QtViewer(QSplitter):
         self.viewer.layers.events.reordered.connect(self._reorder_layers)
         self.viewer.layers.events.added.connect(self._on_add_layer_change)
         self.viewer.layers.events.removed.connect(self._remove_layer)
+        self.viewer.dims.events.ndisplay.connect(
+            self._on_grid_change, position='last'
+        )
+        self.viewer.layers.events.changed.connect(self._on_grid_change)
+        self.viewer.grid.events.update.connect(self._on_grid_change)
         # stop any animations whenever the layers change
         self.viewer.events.layers_change.connect(lambda x: self.dims.stop())
 
@@ -547,10 +552,7 @@ class QtViewer(QSplitter):
             Position in world coordinates, matches the total dimensionality
             of the viewer.
         """
-        nd = self.viewer.dims.ndisplay
-        transform = self.view.camera.transform.inverse
-        mapped_position = transform.map(list(position))[:nd]
-        position_world_slice = mapped_position[::-1]
+        position_world_slice = self.camera.map_canvas_to_worldslice(position)
 
         position_world = copy(self.viewer.dims.point)
         for i, d in enumerate(self.viewer.dims.displayed):
@@ -571,6 +573,16 @@ class QtViewer(QSplitter):
         top_left = self._map_canvas2world([0, 0])
         bottom_right = self._map_canvas2world(self.canvas.size)
         return np.array([top_left, bottom_right])
+
+    def _on_grid_change(self, event):
+        """Arrange the current layers is a 2D grid."""
+        # Place layers in grid in reverse order of layer list
+        for i, layer in enumerate(self.viewer.layers[::-1]):
+            i_row, i_column = self.viewer.grid.position(
+                i, len(self.viewer.layers)
+            )
+            visual = self.layer_to_visual[layer]
+            visual.subplot((i_row, i_column), self.viewer.grid.size)
 
     def on_resize(self, event):
         """Called whenever canvas is resized.
@@ -697,13 +709,24 @@ class QtViewer(QSplitter):
         This is triggered from vispy whenever new data is sent to the canvas or
         the camera is moved and is connected in the `QtViewer`.
         """
-        for layer in self.viewer.layers:
+        for i, layer in enumerate(self.viewer.layers[::-1]):
             if layer.ndim <= self.viewer.dims.ndim:
+                corner_pixels = copy(self._canvas_corners_in_world)
+                # Offset the position of the corners if in grid mode
+                if self.viewer.grid.enabled:
+                    grid_position = self.viewer.grid.position(
+                        i, len(self.viewer.layers)
+                    )
+                    offset = np.multiply(grid_position, self.viewer.grid.size)
+                    corner_pixels[:, self.viewer.dims.displayed[-1]] -= offset[
+                        -1
+                    ]
+                    corner_pixels[:, self.viewer.dims.displayed[-2]] -= offset[
+                        -2
+                    ]
                 layer._update_draw(
                     scale_factor=1 / self.viewer.camera.zoom,
-                    corner_pixels=self._canvas_corners_in_world[
-                        :, -layer.ndim :
-                    ],
+                    corner_pixels=corner_pixels[:, -layer.ndim :],
                     shape_threshold=self.canvas.size,
                 )
 
