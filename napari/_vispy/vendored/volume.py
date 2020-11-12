@@ -427,6 +427,13 @@ class VolumeVisual(Visual):
 
     _interpolation_names = ['linear', 'nearest']
 
+    _complex_modes = {
+        'magnitude': np.abs,
+        'phase': np.angle,
+        'real': np.real,
+        'imaginary': np.imag,
+    }
+
     def __init__(
         self,
         vol,
@@ -439,6 +446,7 @@ class VolumeVisual(Visual):
         clim_range_threshold=0.2,
         emulate_texture=False,
         interpolation='linear',
+        complex_mode='magnitude',
     ):
 
         tex_cls = TextureEmulated3D if emulate_texture else Texture3D
@@ -472,6 +480,7 @@ class VolumeVisual(Visual):
         )
 
         self._interpolation = interpolation
+        self._complex_mode = complex_mode
         self._tex = tex_cls(
             (10, 10, 10),
             interpolation=self._interpolation,
@@ -501,6 +510,21 @@ class VolumeVisual(Visual):
         self.threshold = threshold if (threshold is not None) else vol.mean()
         self.freeze()
 
+    @property
+    def complex_mode(self):
+        return self._complex_mode
+
+    @complex_mode.setter
+    def complex_mode(self, value):
+        if value not in self._complex_modes:
+            raise ValueError(
+                "complex_mode must be one of %s"
+                % ', '.join(self._complex_modes)
+            )
+        if self._complex_mode != value:
+            self._complex_mode = value
+            self.rescale_data()
+
     def set_data(self, vol, clim=None, copy=True):
         """ Set the volume data.
 
@@ -519,6 +543,10 @@ class VolumeVisual(Visual):
         if not ((vol.ndim == 3) or (vol.ndim == 4 and vol.shape[-1] <= 4)):
             raise ValueError('Volume visual needs a 3D image.')
 
+        self._last_data = vol
+        if np.iscomplexobj(vol):
+            vol = self._complex_modes[self._complex_mode](vol)
+
         # Handle clim
         if clim is not None:
             clim = np.array(clim, float)
@@ -531,7 +559,6 @@ class VolumeVisual(Visual):
         # store clims used to normalize _tex data for use in clim_normalized
         self._texture_limits = self._clim
         # store volume in case it needs to be renormalized by clim.setter
-        self._last_data = vol
         self.shared_program['clim'] = self.clim_normalized
 
         # Apply clim (copy data by default... see issue #1727)

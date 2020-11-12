@@ -3,6 +3,7 @@ import warnings
 import numpy as np
 from vispy.color import Colormap as VispyColormap
 
+from .image import ComplexImage as ComplexImageNode
 from .image import Image as ImageNode
 from .vispy_base_layer import VispyBaseLayer
 from .volume import Volume as VolumeNode
@@ -13,18 +14,24 @@ texture_dtypes = [
     np.dtype(np.int16),
     np.dtype(np.uint16),
     np.dtype(np.float32),
+    np.dtype(np.complex64),
 ]
 
 
 class VispyImageLayer(VispyBaseLayer):
     def __init__(self, layer):
-        self._image_node = ImageNode(None, method='auto')
+        self._image_node = (
+            ImageNode(None, method='auto')
+            if not layer.is_complex
+            else ComplexImageNode(None, method='auto')
+        )
         self._volume_node = VolumeNode(np.zeros((1, 1, 1)), clim=[0, 1])
         super().__init__(layer, self._image_node)
         self._array_like = True
 
         self.layer.events.rendering.connect(self._on_rendering_change)
         self.layer.events.interpolation.connect(self._on_interpolation_change)
+        self.layer.events.complex_rendering.connect(self._on_complex_change)
         self.layer.events.colormap.connect(self._on_colormap_change)
         self.layer.events.contrast_limits.connect(
             self._on_contrast_limits_change
@@ -81,7 +88,11 @@ class VispyImageLayer(VispyBaseLayer):
         if dtype not in texture_dtypes:
             try:
                 dtype = dict(
-                    i=np.int16, f=np.float32, u=np.uint16, b=np.uint8
+                    i=np.int16,
+                    f=np.float32,
+                    u=np.uint16,
+                    b=np.uint8,
+                    c=np.complex64,
                 )[dtype.kind]
             except KeyError:  # not an int or float
                 raise TypeError(
@@ -142,6 +153,10 @@ class VispyImageLayer(VispyBaseLayer):
         if len(self.node.shared_program.frag._set_items) > 0:
             self.node.gamma = self.layer.gamma
 
+    def _on_complex_change(self, event=None):
+        if self.layer.is_complex:
+            self.node.complex_mode = self.layer.complex_rendering
+
     def _on_iso_threshold_change(self, event=None):
         if isinstance(self.node, VolumeNode):
             self.node.threshold = self.layer.iso_threshold
@@ -153,6 +168,7 @@ class VispyImageLayer(VispyBaseLayer):
     def reset(self, event=None):
         self._reset_base()
         self._on_interpolation_change()
+        self._on_complex_change()
         self._on_colormap_change()
         self._on_contrast_limits_change()
         self._on_gamma_change()

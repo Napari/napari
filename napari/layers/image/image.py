@@ -3,6 +3,7 @@
 import types
 import warnings
 from copy import copy
+from typing import Callable, Union
 
 import numpy as np
 from scipy import ndimage as ndi
@@ -10,11 +11,17 @@ from scipy import ndimage as ndi
 from ...utils import config
 from ...utils.colormaps import AVAILABLE_COLORMAPS
 from ...utils.events import Event
+from ...utils.misc import guess_complex
 from ...utils.status_messages import format_float
 from ..base import Layer
 from ..intensity_mixin import IntensityVisualizationMixin
 from ..utils.layer_utils import calc_data_range
-from ._image_constants import Interpolation, Interpolation3D, Rendering
+from ._image_constants import (
+    ComplexRendering,
+    Interpolation,
+    Interpolation3D,
+    Rendering,
+)
 from ._image_slice import ImageSlice
 from ._image_slice_data import ImageSliceData
 from ._image_utils import guess_multiscale, guess_rgb
@@ -139,6 +146,9 @@ class Image(IntensityVisualizationMixin, Layer):
     interpolation : str
         Interpolation mode used by vispy. Must be one of our supported
         modes.
+    complex_rendering : str
+        Rendering mode for complex-valued data. Must be one of 'magnitude',
+        'phase', 'real', 'imaginary'
     rendering : str
         Rendering mode used by vispy. Must be one of our supported
         modes.
@@ -168,6 +178,7 @@ class Image(IntensityVisualizationMixin, Layer):
         contrast_limits=None,
         gamma=1,
         interpolation='nearest',
+        complex_rendering='magnitude',
         rendering='mip',
         iso_threshold=0.5,
         attenuation=0.05,
@@ -225,12 +236,18 @@ class Image(IntensityVisualizationMixin, Layer):
         self.events.add(
             interpolation=Event,
             rendering=Event,
+            complex_rendering=Event,
             iso_threshold=Event,
             attenuation=Event,
         )
 
         # Set data
         self.rgb = rgb
+        self.is_complex = (
+            guess_complex(data[0]) if self.multiscale else guess_complex(data)
+        )
+        self._complex_rendering = None
+        self.complex_rendering = complex_rendering
         self._data = data
         if self.multiscale:
             self._data_level = len(self.data) - 1
@@ -320,6 +337,8 @@ class Image(IntensityVisualizationMixin, Layer):
             input_data = self.data[-1]
         else:
             input_data = self.data
+        if self.is_complex:
+            input_data = self._complex_rendering(input_data)
         return calc_data_range(input_data)
 
     @property
@@ -333,6 +352,9 @@ class Image(IntensityVisualizationMixin, Layer):
 
     @data.setter
     def data(self, data):
+        self.is_complex = (
+            guess_complex(data[0]) if self.multiscale else guess_complex(data)
+        )
         self._data = data
         self._update_dims()
         self.events.data()
@@ -475,6 +497,33 @@ class Image(IntensityVisualizationMixin, Layer):
         """Set current rendering mode."""
         self._rendering = Rendering(rendering)
         self.events.rendering()
+
+    @property
+    def complex_rendering(self) -> str:
+        """Mode for converting complex values to real values."""
+        return str(self._complex_rendering)
+
+    @complex_rendering.setter
+    def complex_rendering(
+        self, value: Union[str, ComplexRendering, Callable]
+    ) -> None:
+        """Set mode for rendering complex valued data."""
+
+        _value = ComplexRendering(value)
+
+        if _value == self._complex_rendering:
+            return
+
+        self._complex_rendering = _value
+        if self._complex_rendering == ComplexRendering.PHASE:
+            self.contrast_limits = [-np.pi, np.pi]
+            self.contrast_limits_range = [-np.pi, np.pi]
+        else:
+            if hasattr(self, '_data'):
+                self.reset_contrast_limits()
+                self.contrast_limits_range = self.contrast_limits
+
+        self.events.complex_rendering()
 
     @property
     def loaded(self):
@@ -750,9 +799,24 @@ class Image(IntensityVisualizationMixin, Layer):
             # warning filter can be removed with scipy 1.4
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                downsampled = ndi.zoom(
-                    image, zoom_factor, prefilter=False, order=0
-                )
+
+                if self.is_complex:
+                    real = ndi.zoom(
+                        image.real, zoom_factor, prefilter=False, order=0
+                    )
+                    imag = ndi.zoom(
+                        image.imag, zoom_factor, prefilter=False, order=0
+                    )
+
+                    downsampled = np.empty(real.shape, dtype=np.complex)
+                    downsampled.real = real
+                    downsampled.imag = imag
+                    downsampled = self._complex_rendering(downsampled)
+                else:
+                    downsampled = ndi.zoom(
+                        image, zoom_factor, prefilter=False, order=0
+                    )
+
             low, high = self.contrast_limits
             downsampled = np.clip(downsampled, low, high)
             color_range = high - low
