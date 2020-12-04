@@ -193,6 +193,7 @@ class Layer(KeymapProvider, ABC):
         self.multiscale = multiscale
 
         self._dims = Dims(ndim)
+        self._extent_cache = None
 
         # Create a transform chain consisting of three transforms:
         # 1. `tile2data`: An initial transform only needed displaying tiles
@@ -256,6 +257,7 @@ class Layer(KeymapProvider, ABC):
         self.events = EmitterGroup(
             source=self,
             auto_connect=True,
+            event_added=self._connect_event,
             refresh=Event,
             set_data=Event,
             blending=Event,
@@ -287,6 +289,14 @@ class Layer(KeymapProvider, ABC):
         self.mouse_wheel_callbacks = []
         self._persisted_mouse_event = {}
         self._mouse_drag_gen = {}
+
+    def _connect_event(self, name, emitter):
+        if name in {"status"}:
+            return
+        emitter.connect(self.clean_cache)
+
+    def clean_cache(self, event):
+        self._extent_cache = None
 
     def __str__(self):
         """Return self.name."""
@@ -566,11 +576,13 @@ class Layer(KeymapProvider, ABC):
     @property
     def extent(self) -> Extent:
         """Extent of layer in data and world coordinates."""
-        return Extent(
-            data=self._extent_data,
-            world=self._extent_world,
-            step=abs(self.scale),
-        )
+        if self._extent_cache is None:
+            self._extent_cache = Extent(
+                data=self._extent_data,
+                world=self._extent_world,
+                step=abs(self.scale),
+            )
+        return self._extent_cache
 
     @property
     def _slice_indices(self):

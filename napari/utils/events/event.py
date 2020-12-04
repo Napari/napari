@@ -673,7 +673,12 @@ class EmitterGroup(EventEmitter):
     """
 
     def __init__(
-        self, source=None, auto_connect=True, deprecated=None, **emitters
+        self,
+        source=None,
+        auto_connect=True,
+        deprecated=None,
+        event_added=None,
+        **emitters,
     ):
         EventEmitter.__init__(self, source)
 
@@ -683,6 +688,7 @@ class EmitterGroup(EventEmitter):
         self._emitters = OrderedDict()
         # whether the sub-emitters have been connected to the group:
         self._emitters_connected = False
+        self._event_added = event_added
         self.add(**emitters)
 
     # mypy fix for dynamic attribute access
@@ -770,6 +776,9 @@ class EmitterGroup(EventEmitter):
 
             if auto_connect and self.source is not None:
                 emitter.connect((self.source, self.auto_connect_format % name))
+
+            if self._event_added:
+                self._event_added(name, emitter)
 
             # If emitters are connected to the group already, then this one
             # should be connected as well.
