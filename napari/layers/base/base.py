@@ -2,6 +2,7 @@ import warnings
 from abc import ABC, abstractmethod
 from collections import namedtuple
 from contextlib import contextmanager
+from functools import reduce
 from typing import List, Optional
 
 import numpy as np
@@ -14,6 +15,7 @@ from ...utils.mouse_bindings import MousemapProvider
 from ...utils.naming import magic_name
 from ...utils.status_messages import generate_layer_status
 from ...utils.transforms import Affine, TransformChain
+from ...utils.tree import Node
 from ..utils.layer_utils import (
     compute_multiscale_level_and_corners,
     convert_to_uint8,
@@ -23,7 +25,7 @@ from ._base_constants import Blending
 Extent = namedtuple('Extent', 'data world step')
 
 
-class Layer(KeymapProvider, MousemapProvider, ABC):
+class Layer(KeymapProvider, Node, MousemapProvider, ABC):
     """Base layer class.
 
     Parameters
@@ -179,7 +181,7 @@ class Layer(KeymapProvider, MousemapProvider, ABC):
         self._opacity = opacity
         self._blending = Blending(blending)
         self._visible = visible
-        self._selected = True
+        self._selected = False
         self._freeze = False
         self._status = 'Ready'
         self._help = ''
@@ -260,8 +262,7 @@ class Layer(KeymapProvider, MousemapProvider, ABC):
             blending=Event,
             opacity=Event,
             visible=Event,
-            select=Event,
-            deselect=Event,
+            selection=Event,
             scale=Event,
             translate=Event,
             rotate=Event,
@@ -289,12 +290,22 @@ class Layer(KeymapProvider, MousemapProvider, ABC):
         cls = type(self)
         return f"<{cls.__name__} layer {repr(self.name)} at {hex(id(self))}>"
 
+    def iter_layers(self):
+        yield self
+
+    def _up_through_parents(self):
+        """Propagates up from the layer through all its parent layergroups."""
+        layer = self
+        while layer is not None:
+            yield layer
+            layer = layer.parent
+
     @classmethod
     def _basename(cls):
         return f'{cls.__name__}'
 
     @property
-    def name(self):
+    def name(self) -> str:
         """str: Unique name of the layer."""
         return self._name
 
@@ -333,6 +344,16 @@ class Layer(KeymapProvider, MousemapProvider, ABC):
         self.events.opacity()
 
     @property
+    def effective_opacity(self) -> float:
+        """float: Effective opacity value, scaled by parent layergroups opacity
+
+        Multiplies layer opacity with the opacity of all its parent layergroups
+        """
+        return reduce(
+            lambda x, y: x * y, [i.opacity for i in self._up_through_parents()]
+        )
+
+    @property
     def blending(self):
         """Blending mode: Determines how RGB and alpha values get mixed.
 
@@ -357,8 +378,8 @@ class Layer(KeymapProvider, MousemapProvider, ABC):
         self.events.blending()
 
     @property
-    def visible(self):
-        """bool: Whether the visual is currently being displayed."""
+    def visible(self) -> bool:
+        """Whether the visual is currently being displayed."""
         return self._visible
 
     @visible.setter
@@ -372,7 +393,16 @@ class Layer(KeymapProvider, MousemapProvider, ABC):
             self.editable = False
 
     @property
-    def editable(self):
+    def effective_visibility(self) -> bool:
+        """Whether visual is displayed, taking layergroup parents into account.
+
+        Returns True if the layer and all parent layergroups are visible,
+        and returns False otherwise.
+        """
+        return all([i.visible for i in self._up_through_parents()])
+
+    @property
+    def editable(self) -> bool:
         """bool: Whether the current layer data is editable from the viewer."""
         return self._editable
 
@@ -720,11 +750,7 @@ class Layer(KeymapProvider, MousemapProvider, ABC):
         if selected == self.selected:
             return
         self._selected = selected
-
-        if selected:
-            self.events.select()
-        else:
-            self.events.deselect()
+        self.events.selection(value=selected)
 
     @property
     def status(self):

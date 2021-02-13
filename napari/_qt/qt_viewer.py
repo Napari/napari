@@ -25,9 +25,9 @@ from .dialogs.qt_about_key_bindings import QtAboutKeyBindings
 from .dialogs.screenshot_dialog import ScreenshotDialog
 from .perf.qt_performance import QtPerformance
 from .qt_resources import get_stylesheet
+from .tree import QtLayerTreeView
 from .utils import QImg2array, circle_pixmap, square_pixmap
 from .widgets.qt_dims import QtDims
-from .widgets.qt_layerlist import QtLayerList
 from .widgets.qt_viewer_buttons import QtLayerButtons, QtViewerButtons
 from .widgets.qt_viewer_dock_widget import QtViewerDockWidget
 
@@ -101,7 +101,7 @@ class QtViewer(QSplitter):
         self.viewer = viewer
         self.dims = QtDims(self.viewer.dims)
         self.controls = QtLayerControlsContainer(self.viewer)
-        self.layers = QtLayerList(self.viewer.layers)
+        self.layers = QtLayerTreeView(self.viewer.layers, self)
         self.layerButtons = QtLayerButtons(self.viewer)
         self.viewerButtons = QtViewerButtons(self.viewer)
         self._key_map_handler = KeymapHandler()
@@ -379,7 +379,7 @@ class QtViewer(QSplitter):
         vispy_layer.order = len(self.viewer.layers) - 1
         self.layer_to_visual[layer] = vispy_layer
 
-    def _remove_layer(self, event):
+    def _on_layer_removed(self, event):
         """When a layer is removed, remove its parent.
 
         Parameters
@@ -393,7 +393,7 @@ class QtViewer(QSplitter):
         del vispy_layer
         self._reorder_layers(None)
 
-    def _reorder_layers(self, event):
+    def _on_layers_reordered(self, event):
         """When the list is reordered, propagate changes to draw order.
 
         Parameters
@@ -401,9 +401,10 @@ class QtViewer(QSplitter):
         event : napari.utils.event.Event
             The napari event that triggered this method.
         """
-        for i, layer in enumerate(self.viewer.layers):
-            vispy_layer = self.layer_to_visual[layer]
-            vispy_layer.order = i
+        layers = event.value
+        # FIXME: this probably won't work with Trees
+        for i, layer in enumerate(reversed(layers)):
+            self.layer_to_visual[layer].order = i
         self.canvas._draw_order.clear()
         self.canvas.update()
 

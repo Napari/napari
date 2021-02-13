@@ -190,12 +190,13 @@ class QtDeleteButton(QPushButton):
             Event from the Qt context.
         """
         event.accept()
-        layer_name = event.mimeData().text()
-        layer = self.viewer.layers[layer_name]
-        if not layer.selected:
-            self.viewer.layers.remove(layer)
-        else:
-            self.viewer.layers.remove_selected()
+
+        data = event.mimeData()
+        if not data.hasFormat('application/x-tree-node'):
+            return False
+
+        for layer in data.nodes:
+            layer.emancipate()
 
 
 class QtViewerPushButton(QPushButton):

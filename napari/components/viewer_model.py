@@ -17,6 +17,7 @@ import numpy as np
 
 from .. import layers
 from ..layers.image._image_utils import guess_labels
+from ..layers.layergroup import LayerGroup
 from ..layers.utils.stack_utils import split_channels
 from ..utils import config
 from ..utils._register import create_func as create_add_method
@@ -32,7 +33,6 @@ from .camera import Camera
 from .cursor import Cursor
 from .dims import Dims
 from .grid import GridCanvas
-from .layerlist import LayerList
 from .scale_bar import ScaleBar
 
 DEFAULT_THEME = 'dark'
@@ -87,7 +87,7 @@ class ViewerModel(KeymapProvider, MousemapProvider):
             ndisplay=ndisplay, order=order, axis_labels=axis_labels
         )
 
-        self.layers = LayerList()
+        self.layers = LayerGroup()
         self.camera = Camera()
         self.cursor = Cursor()
         self.axes = Axes()
