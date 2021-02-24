@@ -4,12 +4,13 @@ wrap.
 """
 import inspect
 import os
+import sys
 import time
 from collections import Counter
 from itertools import chain, repeat
 from typing import Dict
 
-from qtpy.QtCore import Qt
+from qtpy.QtCore import Qt, QTimer
 from qtpy.QtGui import QIcon, QKeySequence
 from qtpy.QtWidgets import (
     QAction,
@@ -845,7 +846,11 @@ class Window:
         """
         try:
             self._qt_window.resize(self._qt_window.layout().sizeHint())
-            self._qt_window.show()
+            if sys.platform.startswith("linux"):
+                QTimer.singleShot(0, self._qt_window.show)
+            else:
+                self._qt_window.show()
+
         except (AttributeError, RuntimeError):
             raise RuntimeError(
                 "This viewer has already been closed and deleted. "
