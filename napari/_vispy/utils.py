@@ -11,6 +11,7 @@ from ..layers import (
 from ..utils.config import async_octree
 from .vispy_base_layer import VispyBaseLayer
 from .vispy_image_layer import VispyImageLayer
+from .vispy_labels_layer import VispyLabelsLayer
 from .vispy_points_layer import VispyPointsLayer
 from .vispy_shapes_layer import VispyShapesLayer
 from .vispy_surface_layer import VispySurfaceLayer
@@ -18,6 +19,7 @@ from .vispy_tracks_layer import VispyTracksLayer
 from .vispy_vectors_layer import VispyVectorsLayer
 
 layer_to_visual = {
+    Labels: VispyLabelsLayer,
     Image: VispyImageLayer,
     Labels: VispyImageLayer,
     Points: VispyPointsLayer,
