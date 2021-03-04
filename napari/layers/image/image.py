@@ -651,6 +651,8 @@ class _ImageBase(IntensityVisualizationMixin, Layer):
             return
 
         image = self._slice.thumbnail.view
+        if image is None:
+            return
 
         if self._ndisplay == 3 and self.ndim > 2:
             image = np.max(image, axis=0)
@@ -732,6 +734,9 @@ class _ImageBase(IntensityVisualizationMixin, Layer):
         coord = np.round(coord).astype(int)
 
         raw = self._slice.image.raw
+        if raw is None:
+            return
+
         if self.rgb:
             shape = raw.shape[:-1]
         else:
