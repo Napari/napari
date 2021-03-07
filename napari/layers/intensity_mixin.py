@@ -67,6 +67,9 @@ class IntensityVisualizationMixin:
     @contrast_limits.setter
     def contrast_limits(self, contrast_limits):
         validate_2_tuple(contrast_limits)
+        if list(contrast_limits) == self.contrast_limits:
+            return
+
         self._contrast_limits_msg = (
             format_float(contrast_limits[0])
             + ', '
