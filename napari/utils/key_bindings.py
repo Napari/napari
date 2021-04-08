@@ -35,9 +35,14 @@ To create a keymap that will block others, ``bind_key(..., ...)```.
 import inspect
 import re
 import types
-from collections import ChainMap
+from collections import ChainMap, defaultdict
+from dataclasses import dataclass
+from typing import Any, Callable, Dict
 
+from qtpy.QtGui import QKeySequence
 from vispy.util import keys
+
+from .interactions import format_shortcut
 
 SPECIAL_KEYS = [
     keys.SHIFT,
@@ -182,6 +187,257 @@ def normalize_key_combo(key_combo):
 UNDEFINED = object()
 
 
+def call_with_context(function, context):
+    """
+    call function `function` with the corresponding value taken from context
+
+    This is use in the action manager to pass the rights instances to the actions,
+    without having the need for them to take a **kwarg, and is mostly needed when
+    triggering actions via buttons, or to record.
+
+    If we went a declarative way to trigger action we cannot refer to instances
+    or objects that must be passed to the action, or at least this is
+    problematic.
+
+    We circumvent this by having a context (dictionary of str:instance) in
+    the action manager, and anything can tell the action manager "this is the
+    current instance a key". When an action is triggered; we inspect the
+    signature look at which instances it may need and pass this as parameters.
+    """
+    from inspect import signature
+
+    context_keys = [
+        k
+        for k, v in signature(function).parameters.items()
+        if v.kind not in (v.VAR_POSITIONAL, v.VAR_KEYWORD)
+    ]
+    ctx = {k: v for k, v in context.items() if k in context_keys}
+    return function(**ctx)
+
+
+@dataclass
+class Action:
+    command: Callable
+    description: str
+    keymappable: Any
+
+
+class ActionManager:
+    """
+    Manage the bindings between buttons; shortcuts, callbacks gui elements...
+
+    The action manager is aware of the various buttons, keybindings and other
+    elements that may trigger an action and is able to synchronise all of those.
+    Thus when a shortcut is bound; this should be capable of updating the
+    buttons tooltip menus etc to show the shortcuts, descriptions...
+
+    In most cases this should also allow to bind non existing shortcuts,
+    actions, buttons, in which case they will be bound only once the actions are
+    registered.
+
+    As the action manager also knows about all the UI elements that can trigger
+    an action, it can also be used to flash the buttons when the action is
+    triggered separately.
+
+    For actions that need access to a global element (a viewer, a plugin, ... ),
+    you want to give this item a unique name, and add it to the action manager
+    `context` object.
+
+    >>> action_manager.context['number'] = 1
+    ... action_manager.context['qtv'] = viewer.qt_viewer
+
+    >>> def callback(qtv, number):
+    ...     qtv.dims[number] +=1
+
+    >>> action_manager.register_action('bump one', callback,
+    ...     'Add one to dims',
+    ...     None)
+
+    The callback signature is going to be inspected and required globals passed
+    in.
+    """
+
+    _actions: Dict[str, Action]
+
+    def __init__(self):
+        # map associating a name/id with a Comm
+        self._actions = {}
+        self._buttons = defaultdict(lambda: [])
+        self._qactions = defaultdict(lambda: [])
+        self._shortcuts = {}
+        self._orphans = {}
+        self.context = {}
+
+    def register_action(self, name, command, description, keymappable):
+        """
+        Register an action for future usage
+
+        An action is generally a callback associated with
+         - a name (unique),
+         - a description
+         - A keymapable (easier for focus and backward compatibility).
+
+        Actions can then be later bound/unbound from button elements, and
+        shortcuts; and the action manager will take care of modifying the keymap
+        of instances to handle shortcuts; and UI elements to have tooltips with
+        descriptions and shortcuts;
+
+        Parameters
+        ----------
+
+        name: str
+            unique name/id of the command that can be used to refer to this
+            command
+        command: callable
+            take 0, or 1 parameter; is `instance` is not None, will be called
+            `instance` as first parameter.
+        description: str
+            Long string to describe what the command does, will be used in
+            tooltips.
+
+        """
+        assert name not in self._actions, name
+        self._actions[name] = Action(command, description, keymappable)
+        self._update_shortcut_bindings(name)
+        # shortcuts may have been bound before the command was actually
+        # registered, remove it from orphan and bind shortcuts.
+        if command in self._orphans:
+            # print('Found orphan shortcut')
+            sht = self._orphans.pop(command)
+            self.bind_shortcut(name, sht)
+        self._update_gui_elements(name)
+
+    def _update_gui_elements(self, name):
+        """
+        Update the description and shortcuts of all the (known) gui elements.
+        """
+        if name not in self._actions:
+            return
+        buttons = self._buttons[name]
+        desc = self._actions[name].description
+
+        # update buttons with shortcut and description
+        if name in self._shortcuts:
+            sht = self._shortcuts[name]
+            sht_str = f' ({format_shortcut(sht)})'
+        else:
+            sht = ''
+            sht_str = ''
+        for button in buttons:
+            button.setToolTip(desc + sht_str)
+        if name in self._qactions:
+            action = self._actions[name]
+            qaction = self._qactions[name]
+            qaction.setShortcut(
+                QKeySequence(sht.replace('-', '+').replace('Control', 'Ctrl'))
+            )
+            qaction.setText(action.description)
+            qaction.setStatusTip(action.description)
+
+    def _update_shortcut_bindings(self, name):
+        """
+        Update the key mappable for given action name
+        to trigger the action within the given context and
+        make all the corresponding UI element flash if possible.
+        """
+        if name not in self._actions:
+            return
+        action = self._actions[name]
+        if name not in self._shortcuts:
+            return
+        sht = self._shortcuts.get(name)
+        keymappable = action.keymappable
+        if hasattr(keymappable, 'bind_key'):
+
+            def flash(*args):
+                call_with_context(action.command, self.context)
+                for b in self._buttons.get(name, []):
+                    b._animation.start()
+
+            keymappable.bind_key(sht)(flash)
+
+    def bind_button(self, name, button):
+        """
+        Bind `button` to trigger Action `name` on click.
+        """
+        action = self._actions[name]
+
+        button.clicked.connect(
+            lambda: call_with_context(action.command, self.context)
+        )
+
+        self._buttons[name].append(button)
+        self._update_gui_elements(name)
+
+    def bind_shortcut(self, name, shortcut):
+        """
+        bind shortcut `shortcut` to trigger action `name`
+        """
+        self._shortcuts[name] = shortcut
+        self._update_shortcut_bindings(name)
+        self._update_gui_elements(name)
+
+    def bind_qaction(self, name, qaction):
+        """
+        Bind the given qaction to an action.
+
+        This will also update the description and shortcut when those changes.
+
+        Same as for shortcut; make ui element flash when action is triggered.
+        """
+        self._qactions[name] = qaction
+        action = self._actions[name]
+
+        def flash(*args):
+            call_with_context(action.command, self.context)
+            for b in self._buttons.get(name, []):
+                b._animation.start()
+
+        qaction.triggered.connect(flash)
+        self._update_gui_elements(name)
+
+    def unbind_shortcut(self, name):
+        """
+        unbind shortcut for action name
+        """
+        action = self._actions[name]
+        sht = self._shortcuts.get(name)
+        if hasattr(action.keymappable, 'bind_key'):
+            action.keymappable.bind_key(sht)(None)
+        del self._shortcuts[name]
+        self._update_gui_elements(name)
+
+
+action_manager = ActionManager()
+
+
+_actions = {
+    'V': 'toggle_selected_visibility',
+    'Control-G': 'toggle_grid',
+    'Shift-Down': 'also_select_layer_below',
+    'Shift-Up': 'also_select_layer_above',
+    'Down': 'select_layer_below',
+    'Up': 'select_layer_above',
+    'Control-A': 'select_all',
+    'Control-T': 'transpose_axes',
+    'Control-R': 'reset_view',
+    'Ctrl+Shift+C': 'toggle_console_visibility',
+    'Control-E': 'roll_axes',
+    'Alt-Down': 'focus_axes_down',
+    'Alt-Up': 'focus_axes_up',
+    'Right': 'increment_dims_right',
+    'Left': 'increment_dims_left',
+    'Control-Y': 'toggle_ndisplay',
+    'Control-Shift-Backspace': 'remove_all_layers',
+    'Control-Shift-Delete': 'remove_all_layers',
+    'Control-Backspace': 'remove_selected',
+    'Control-Delete': 'remove_selected',
+}
+
+for (shortcut, action_name) in _actions.items():
+    action_manager.bind_shortcut(action_name, shortcut)
+
+
 def bind_key(keymap, key, func=UNDEFINED, *, overwrite=False):
     """Bind a key combination to a keymap.
 
@@ -249,7 +505,7 @@ def bind_key(keymap, key, func=UNDEFINED, *, overwrite=False):
             return func
 
         return inner
-
+    assert key is not Ellipsis
     if key is not Ellipsis:
         key = normalize_key_combo(key)
 
@@ -315,6 +571,28 @@ class KeymapProvider:
             cls.class_keymap = {}
 
     bind_key = KeybindingDescriptor(bind_key)
+
+    @classmethod
+    def register_action(cls, *, description=None, name=None):
+        """
+        Convenient decorator to register an action with the current KeymapProvider
+
+        It will use the function name as the action name, and the function docstring as
+        the function description.
+        """
+
+        def _inner(func):
+            nonlocal name
+            nonlocal description
+            if name is None:
+                name = func.__name__
+            assert name is not None
+            if description is None:
+                description = func.__doc__
+            action_manager.register_action(name, func, description, cls)
+            return func
+
+        return _inner
 
 
 def _bind_keymap(keymap, instance):

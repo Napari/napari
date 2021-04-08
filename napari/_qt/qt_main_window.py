@@ -25,6 +25,7 @@ from qtpy.QtWidgets import (
 from .. import plugins
 from ..utils import config, perf
 from ..utils.io import imsave
+from ..utils.key_bindings import action_manager
 from ..utils.misc import in_jupyter
 from ..utils.settings import SETTINGS
 from ..utils.translations import trans
@@ -297,6 +298,11 @@ class Window:
             self._add_viewer_dock_widget(self.qt_viewer.dockPerformance)
         else:
             self._debug_menu = None
+
+        for name, action in action_manager._actions.items():
+            qa = QAction(self.qt_viewer)
+            action_manager.bind_qaction(name, qa)
+            self.window_menu.addAction(qa)
 
         if show:
             self.show()
