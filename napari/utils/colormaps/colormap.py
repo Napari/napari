@@ -1,7 +1,8 @@
+import warnings
 from enum import Enum
 
 import numpy as np
-from pydantic import validator
+from pydantic import root_validator, validator
 
 from ..events import EventedModel
 from ..events.custom_types import Array
@@ -63,7 +64,40 @@ class Colormap(EventedModel):
                 values['interpolation'] == ColormapInterpolationMode.ZERO
             )
             return np.linspace(0, 1, n_controls)
+        if not np.array_equal(v, sorted(v)):
+            raise ValueError("Coords needs to be sorted in ascending order")
         return v
+
+    @root_validator(skip_on_failure=True)
+    def check_bound_coords(cls, values):
+        colors = values['colors']
+        controls = values['controls']
+        if controls[0] != 0:
+            warnings.warn(
+                f"colormap need to have first coord equal to 0, not {controls[0]}",
+                RuntimeWarning,
+            )
+            controls = np.concatenate(([0], controls))
+            colors = np.concatenate(([colors[0]], colors))
+        if controls[-1] != 1:
+            warnings.warn(
+                f"colormap need to have last coord equal to 1, not {controls[-1]}",
+                RuntimeWarning,
+            )
+            controls = np.concatenate((controls, [1]))
+            colors = np.concatenate((colors, [colors[-1]]))
+        if controls.size != colors.shape[0] + int(
+            values['interpolation'] == ColormapInterpolationMode.ZERO
+        ):
+            raise ValueError(
+                "Number of colors does not match with length of controls"
+            )
+        if not np.array_equal(controls, sorted(controls)):
+            # To find examples like [-2, 0.5 ,7]
+            raise ValueError("Coords needs to be in range [0, 1]")
+        values['colors'] = colors
+        values['controls'] = controls
+        return values
 
     def __iter__(self):
         yield from (self.colors, self.controls, self.interpolation)
