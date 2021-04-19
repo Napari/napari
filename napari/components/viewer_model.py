@@ -858,7 +858,10 @@ class ViewerModel(KeymapProvider, MousemapProvider, EventedModel):
         return added
 
     def _add_layer_from_data(
-        self, data, meta: dict = None, layer_type: Optional[str] = None
+        self,
+        data,
+        meta: Dict[str, Any] = None,
+        layer_type: Optional[str] = None,
     ) -> Union[Layer, List[Layer]]:
         """Add arbitrary layer data to the viewer.
 
@@ -1107,3 +1110,17 @@ for _layer in (
 ):
     func = create_add_method(_layer)
     setattr(ViewerModel, func.__name__, func)
+
+
+if __name__ == '__main__':
+    # make type stubs
+    from ..utils.misc import _generate_cls_stubs
+
+    imports = [
+        'from typing import Any, Dict, List, Sequence, Union',
+        'import napari.layers',
+        'import napari.utils.events',
+        'import napari.utils.key_bindings',
+        'import napari.utils.mouse_bindings',
+    ]
+    _generate_cls_stubs(ViewerModel, __file__.replace(".py", ".pyi"), imports)
