@@ -34,7 +34,12 @@ def iterable_w_context():
             # using a context manager also allows us to manipulate
             # the progress object e.g. by setting a description
             pbr.set_description(f"Slice {i}")
-            process(im_slice)
+
+            # a context manager is also the only way to make use
+            # of nested progress bars and have them aligned in
+            # activity dock nicely
+            for channel in progress(im_slice):
+                process(channel)
                 
 def indeterminate():
     """By passing a total of 0, we can have an indeterminate progress bar
@@ -93,5 +98,6 @@ pbar_widget.setLayout(button_layout)
 
 viewer.window.add_dock_widget(pbar_widget)
 # showing the activity dock so we can see the progress bars
-viewer.window.qt_viewer.activityDock.show()
+viewer.window.qt_viewer.window()._activity_dialog.show()
+
 napari.run()

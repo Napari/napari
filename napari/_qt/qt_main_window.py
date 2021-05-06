@@ -6,6 +6,7 @@ import inspect
 import sys
 import time
 import warnings
+from functools import partial
 from typing import Any, ClassVar, Dict, List, Tuple
 
 from qtpy.QtCore import QEvent, QPoint, QProcess, QSize, Qt
@@ -20,6 +21,7 @@ from qtpy.QtWidgets import (
     QMainWindow,
     QMenu,
     QShortcut,
+    QToolButton,
     QWidget,
 )
 
@@ -31,6 +33,7 @@ from ..utils.io import imsave
 from ..utils.misc import in_jupyter, running_as_bundled_app
 from ..utils.settings import SETTINGS
 from ..utils.translations import trans
+from .dialogs.activity_dialog import ActivityDialog
 from .dialogs.preferences_dialog import PreferencesDialog
 from .dialogs.qt_about import QtAbout
 from .dialogs.qt_plugin_dialog import QtPluginDialog
@@ -40,11 +43,17 @@ from .perf.qt_debug_menu import DebugMenu
 from .qt_event_loop import NAPARI_ICON_PATH, get_app, quit_app
 from .qt_resources import get_stylesheet
 from .qt_viewer import QtViewer
-from .utils import QImg2array, qbytearray_to_str, str_to_qbytearray
+from .utils import (
+    QImg2array,
+    move_to_canvas_offset,
+    qbytearray_to_str,
+    str_to_qbytearray,
+)
 from .widgets.qt_viewer_dock_widget import (
     _SHORTCUT_DEPRECATION_STRING,
     QtViewerDockWidget,
 )
+from .widgets.qt_welcome import QtWidgetOverlay
 
 _sentinel = object()
 
@@ -80,6 +89,8 @@ class _QtMainWindow(QMainWindow):
         self._maximized_flag = False
         self._preferences_dialog = None
         self._preferences_dialog_size = QSize()
+
+        self._activity_dialog = ActivityDialog()
         self._status_bar = self.statusBar()
 
         # set SETTINGS plugin defaults.
@@ -347,6 +358,26 @@ class Window:
         self._help = QLabel('')
         self._status_bar.addPermanentWidget(self._help)
 
+        self._activity_btn = QToolButton()
+        self._activity_btn.setObjectName("QtActivityButton")
+        self._activity_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self._activity_btn.setArrowType(Qt.UpArrow)
+        self._activity_btn.setText(trans._('activity'))
+        self._activity_btn.setCheckable(True)
+        self._activity_btn.clicked.connect(self._toggle_activity_dock)
+
+        canvas_widg = self.qt_viewer.findChildren(QtWidgetOverlay)[0].parent()
+        self._qt_window._activity_dialog.setParent(canvas_widg)
+        move_activity_dialog_to_bottom_right = partial(
+            move_to_canvas_offset, self._qt_window._activity_dialog, (16, 18)
+        )
+        self.qt_viewer._canvas_overlay.resized.connect(
+            move_activity_dialog_to_bottom_right
+        )
+        move_to_canvas_offset(self._qt_window._activity_dialog)
+        self._qt_window._activity_dialog.hide()
+        self._status_bar.addPermanentWidget(self._activity_btn)
+
         self.qt_viewer.viewer.theme = SETTINGS.appearance.theme
         self._update_theme()
 
@@ -357,7 +388,6 @@ class Window:
         self._add_viewer_dock_widget(
             self.qt_viewer.dockLayerList, tabify=False
         )
-        self._add_viewer_dock_widget(self.qt_viewer.activityDock, tabify=False)
         self.window_menu.addSeparator()
 
         SETTINGS.appearance.events.theme.connect(self._update_theme)
@@ -791,6 +821,14 @@ class Window:
             self.qt_viewer.show_key_bindings_dialog
         )
         self.help_menu.addAction(about_key_bindings)
+
+    def _toggle_activity_dock(self, state):
+        if state:
+            self._activity_btn.setArrowType(Qt.DownArrow)
+            self._qt_window._activity_dialog.show()
+        else:
+            self._activity_btn.setArrowType(Qt.UpArrow)
+            self._qt_window._activity_dialog.hide()
 
     def _toggle_scale_bar_visible(self, state):
         self.qt_viewer.viewer.scale_bar.visible = state

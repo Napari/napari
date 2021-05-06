@@ -4,7 +4,7 @@ from typing import Sequence, Union
 
 import numpy as np
 import qtpy
-from qtpy.QtCore import QByteArray, QSize, Qt
+from qtpy.QtCore import QByteArray, QPoint, QSize, Qt
 from qtpy.QtGui import QCursor, QDrag, QImage, QPainter, QPixmap
 from qtpy.QtWidgets import (
     QApplication,
@@ -17,6 +17,7 @@ from qtpy.QtWidgets import (
 
 from ..utils.misc import is_sequence
 from ..utils.translations import trans
+from .widgets.qt_dims import QtDims
 
 QBYTE_FLAG = "!QBYTE_"
 
@@ -265,3 +266,14 @@ def delete_qapp(app):
     # calling a second time is necessary on PySide2...
     # see: https://bugreports.qt.io/browse/PYSIDE-1470
     QApplication.instance()
+
+
+def move_to_canvas_offset(widg, offset=(8, 8)):
+    """Position widget at the bottom right edge of the parent."""
+    canvas_widg = widg.parent()
+    dims_widg = canvas_widg.findChildren(QtDims)
+    if dims_widg:
+        offset = (offset[0], offset[1] + dims_widg[0].height())
+
+    sz = canvas_widg.size() - widg.size() - QSize(*offset)
+    widg.move(QPoint(sz.width(), sz.height()))

@@ -1,14 +1,16 @@
 from qtpy import QtCore
 from qtpy.QtWidgets import (
     QApplication,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QProgressBar,
+    QVBoxLayout,
     QWidget,
 )
 
 
-def get_pbar(**kwargs):
+def get_pbar(current_group_ref, **kwargs):
     """Adds ProgressBar to viewer Activity Dock and returns it.
 
     Parameters
@@ -26,9 +28,19 @@ def get_pbar(**kwargs):
     current_window = _QtMainWindow.current()
     if current_window is None:
         return
-    viewer_instance = current_window.qt_viewer
     pbar = ProgressBar(**kwargs)
-    viewer_instance.activityDock.widget().layout().addWidget(pbar)
+    pbr_layout = (
+        current_window.qt_viewer.window()._activity_dialog.activity_layout
+    )
+
+    if current_group_ref:
+        group_widg = current_group_ref()
+        group_layout = group_widg.layout()
+        # insert before group separator
+        group_layout.insertWidget(group_layout.count() - 2, pbar)
+    else:
+        pbr_group = ProgressBarGroup(pbar)
+        pbr_layout.addWidget(pbr_group)
 
     return pbar
 
@@ -63,3 +75,18 @@ class ProgressBar(QWidget):
 
     def _set_eta(self, eta):
         self.eta_label.setText(eta)
+
+
+class ProgressBarGroup(QWidget):
+    def __init__(self, pbar, parent=None) -> None:
+        super().__init__(parent)
+        self.setAttribute(QtCore.Qt.WA_DeleteOnClose)
+
+        pbr_group_layout = QVBoxLayout()
+        pbr_group_layout.addWidget(pbar)
+
+        line = QFrame(self)
+        line.setObjectName("QtCustomTitleBarLine")
+        line.setFixedHeight(1)
+        pbr_group_layout.addWidget(line)
+        self.setLayout(pbr_group_layout)
