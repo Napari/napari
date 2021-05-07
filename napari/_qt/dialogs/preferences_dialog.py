@@ -147,12 +147,12 @@ class PreferencesDialog(QDialog):
     def restore_defaults(self):
         """Launches dialog to confirm restore settings choice."""
 
-        widget = ConfirmDialog(
+        self._reset_dialog = ConfirmDialog(
             parent=self,
             text=trans._("Are you sure you want to restore default settings?"),
         )
-        widget.valueChanged.connect(self._reset_widgets)
-        widget.exec_()
+        self._reset_dialog.valueChanged.connect(self._reset_widgets)
+        self._reset_dialog.exec_()
 
     def _reset_widgets(self):
         """Deletes the widgets and rebuilds with defaults."""
@@ -274,6 +274,9 @@ class PreferencesDialog(QDialog):
                     self._values_dict[page] = new_dict
                 except:  # noqa: E722
                     continue
+
+    def set_current_index(self, index):
+        self._list.setCurrentRow(index)
 
 
 class ConfirmDialog(QDialog):
