@@ -2,6 +2,7 @@
 """
 import types
 import warnings
+from typing import Tuple, Union
 
 import numpy as np
 from scipy import ndimage as ndi
@@ -227,6 +228,7 @@ class _ImageBase(IntensityVisualizationMixin, Layer):
             rendering=Event,
             iso_threshold=Event,
             attenuation=Event,
+            bounding_box=Event,
         )
 
         # Set data
@@ -273,6 +275,17 @@ class _ImageBase(IntensityVisualizationMixin, Layer):
         }
         self.interpolation = interpolation
         self.rendering = rendering
+
+        if rgb:
+            self._bounding_box_lims = np.column_stack(
+                (np.zeros(data.ndim - 1), data.shape[:-1])
+            )
+        else:
+            self._bounding_box_lims = np.column_stack(
+                (np.zeros(data.ndim), data.shape)
+            )
+        # self._bounding_box_lims = np.array([[0, 100], [0, 200], [0, 300]])
+        self._bounding_box_lims[:, 1] = self._bounding_box_lims[:, 1] - 1
 
         # Trigger generation of view slice and thumbnail
         self._update_dims()
@@ -470,6 +483,33 @@ class _ImageBase(IntensityVisualizationMixin, Layer):
         """Set current rendering mode."""
         self._rendering = Rendering(rendering)
         self.events.rendering()
+
+    @property
+    def _bounding_box(self):
+        return self._bounding_box_lims
+
+    @_bounding_box.setter
+    def _bounding_box(self, bounding_box):
+        self._bounding_box_lims = bounding_box
+        self.events.bounding_box()
+
+    def _set_bbox_lim(
+        self, lims: Union[np.ndarray, Tuple[float, float]], axis: int
+    ):
+        self._bounding_box_lims[axis, :] = np.asarray(lims, dtype=float)
+        self.events.bounding_box()
+
+    @property
+    def _view_bounding_box(self):
+        """Returns the bounding box sliced according to the displayed dimensions"""
+
+        if self._ndisplay == 3 and self._bounding_box.shape[0] == 2:
+            bounding_box_view = np.vstack(([0, 1], self._bounding_box))
+
+        else:
+            bounding_box_view = self._bounding_box[self._dims_displayed]
+
+        return bounding_box_view
 
     @property
     def loaded(self):

@@ -82,6 +82,13 @@ FRAG_SHADER = """
 // uniforms
 uniform $sampler_type u_volumetex;
 uniform vec3 u_shape;
+uniform float u_bbox_x_min;
+uniform float u_bbox_x_max;
+uniform float u_bbox_y_min;
+uniform float u_bbox_y_max;
+uniform float u_bbox_z_min;
+uniform float u_bbox_z_max;
+
 uniform vec2 clim;
 uniform float gamma;
 uniform float u_threshold;
@@ -238,28 +245,54 @@ void main() {{
     // whether the rays are correctly oriented
     //gl_FragColor = vec4(0.0, f_nsteps / 3.0 / u_shape.x, 1.0, 1.0);
     //return;
-
     {before_loop}
-
     // This outer loop seems necessary on some systems for large
     // datasets. Ugly, but it works ...
     vec3 loc = start_loc;
     int iter = 0;
+    bool something_to_render = false;
+    float u_bbox_x_min_tex = u_bbox_x_min / u_shape.x;
+    float u_bbox_x_max_tex = u_bbox_x_max / u_shape.x;
+    float u_bbox_y_min_tex = u_bbox_y_min / u_shape.y;
+    float u_bbox_y_max_tex = u_bbox_y_max / u_shape.y;
+    float u_bbox_z_min_tex = u_bbox_z_min / u_shape.z;
+    float u_bbox_z_max_tex = u_bbox_z_max / u_shape.z;
+    
     while (iter < nsteps) {{
         for (iter=iter; iter<nsteps; iter++)
         {{
+            // check if this position is in the rendered volume
+            if((loc.x < u_bbox_x_min_tex) || loc.x > u_bbox_x_max_tex){{
+                loc += step;
+                continue;
+            }}
+            if((loc.y < u_bbox_y_min_tex) || loc.y > u_bbox_y_max_tex){{
+                loc += step;
+                continue;
+            }}
+            if((loc.z < u_bbox_z_min_tex) || loc.z > u_bbox_z_max_tex){{
+                loc += step;
+                continue;
+            }}
+            
+            // since the ray is in the rendered volume, we will render
+            something_to_render = true;
+            
             // Get sample color
             vec4 color = $sample(u_volumetex, loc);
             float val = color.g;
-
+            
             {in_loop}
-
             // Advance location deeper into the volume
             loc += step;
         }}
     }}
-
-    {after_loop}
+    if (something_to_render == true) {{
+        {after_loop}
+    }}
+    else {{
+        discard;
+    }}
 
     /* Set depth value - from visvis TODO
     int iter_depth = int(maxi);
