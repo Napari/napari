@@ -20,6 +20,7 @@ from qtpy.QtWidgets import (
     QMainWindow,
     QMenu,
     QShortcut,
+    QToolTip,
     QWidget,
 )
 
@@ -109,6 +110,10 @@ class _QtMainWindow(QMainWindow):
                 inst.append(inst.pop(inst.index(self)))
             except ValueError:
                 pass
+        if e.type() == QEvent.ToolTip and self.qt_viewer.viewer.tooltip_text:
+            QToolTip.showText(
+                e.globalPos(), self.qt_viewer.viewer.tooltip_text
+            )
         return super().event(e)
 
     def _load_window_settings(self):
