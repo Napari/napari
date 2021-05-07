@@ -7,8 +7,7 @@ from typing import List, Optional
 import numpy as np
 
 from ...utils.dask_utils import configure_dask
-from ...utils.events import EmitterGroup, Event
-from ...utils.events.event import WarningEmitter
+from ...utils.events import EmitterGroup
 from ...utils.key_bindings import KeymapProvider
 from ...utils.misc import ROOT_DIR
 from ...utils.mouse_bindings import MousemapProvider
@@ -16,6 +15,7 @@ from ...utils.naming import magic_name
 from ...utils.status_messages import generate_layer_status
 from ...utils.transforms import Affine, TransformChain
 from ...utils.translations import trans
+from ...utils.tree import Node
 from .._source import current_source
 from ..utils.layer_utils import (
     compute_multiscale_level_and_corners,
@@ -26,7 +26,7 @@ from ._base_constants import Blending
 Extent = namedtuple('Extent', 'data world step')
 
 
-class Layer(KeymapProvider, MousemapProvider, ABC):
+class Layer(KeymapProvider, MousemapProvider, Node, ABC):
     """Base layer class.
 
     Parameters
@@ -255,45 +255,41 @@ class Layer(KeymapProvider, MousemapProvider, ABC):
         self._thumbnail = np.zeros(self._thumbnail_shape, dtype=np.uint8)
         self._update_properties = True
         self._name = ''
-        self.events = EmitterGroup(
-            source=self,
-            auto_connect=False,
-            refresh=Event,
-            set_data=Event,
-            blending=Event,
-            opacity=Event,
-            visible=Event,
-            scale=Event,
-            translate=Event,
-            rotate=Event,
-            shear=Event,
-            affine=Event,
-            data=Event,
-            name=Event,
-            thumbnail=Event,
-            status=Event,
-            help=Event,
-            interactive=Event,
-            cursor=Event,
-            cursor_size=Event,
-            editable=Event,
-            loaded=Event,
-            _ndisplay=Event,
-            select=WarningEmitter(
-                trans._(
-                    "'layer.events.select' is deprecated and will be removed in napari v0.4.9, use 'viewer.layers.selection.events.changed' instead, and inspect the 'added' attribute on the event.",
-                    deferred=True,
-                ),
-                type='select',
-            ),
-            deselect=WarningEmitter(
-                trans._(
-                    "'layer.events.deselect' is deprecated and will be removed in napari v0.4.9, use 'viewer.layers.selection.events.changed' instead, and inspect the 'removed' attribute on the event.",
-                    deferred=True,
-                ),
-                type='deselect',
-            ),
+
+        _events = dict.fromkeys(
+            (
+                'refresh',
+                'set_data',
+                'blending',
+                'opacity',
+                'visible',
+                'scale',
+                'translate',
+                'rotate',
+                'shear',
+                'affine',
+                'data',
+                'name',
+                'thumbnail',
+                'status',
+                'help',
+                'interactive',
+                'cursor',
+                'cursor_size',
+                'editable',
+                'loaded',
+                '_ndisplay',
+            )
         )
+        # For inheritance: If the mro already provides an EmitterGroup, add...
+        if hasattr(self, 'events') and isinstance(self.events, EmitterGroup):
+            self.events.add(**_events)
+        else:
+            # otherwise create a new one
+            self.events = EmitterGroup(
+                source=self, auto_connect=False, **_events
+            )
+
         self.name = name
 
     def __str__(self):
@@ -309,11 +305,6 @@ class Layer(KeymapProvider, MousemapProvider, ABC):
         return f'{cls.__name__}'
 
     @property
-    def name(self):
-        """str: Unique name of the layer."""
-        return self._name
-
-    @property
     def source(self):
         return self._source
 
@@ -325,6 +316,11 @@ class Layer(KeymapProvider, MousemapProvider, ABC):
         Derived classes that do asynchronous loading can override this.
         """
         return True
+
+    @property
+    def name(self) -> str:
+        """str: Unique name of the layer."""
+        return self._name
 
     @name.setter
     def name(self, name):
@@ -382,7 +378,7 @@ class Layer(KeymapProvider, MousemapProvider, ABC):
     @property
     def visible(self):
         """bool: Whether the visual is currently being displayed."""
-        return self._visible
+        return self._visible and all(p._visible for p in self.iter_parents())
 
     @visible.setter
     def visible(self, visibility):
