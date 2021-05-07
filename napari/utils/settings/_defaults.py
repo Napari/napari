@@ -215,6 +215,9 @@ class AppearanceSettings(BaseNapariSettings):
     class NapariConfig:
         # Napari specific configuration
         preferences_exclude = ['schema_version']
+        preferences_managed = [
+            "schema_version",
+        ]
 
 
 class ApplicationSettings(BaseNapariSettings):
@@ -294,6 +297,16 @@ class ApplicationSettings(BaseNapariSettings):
             "save_history",
             "ipy_interactive",
         ]
+        preferences_managed = [
+            "schema_version",
+            "preferences_size",
+            "first_time",
+            "open_history",
+            "save_history",
+            "window_position",
+            "window_size",
+            "window_state",
+        ]
 
 
 class PluginHookOption(TypedDict):
@@ -325,6 +338,9 @@ class PluginsSettings(BaseNapariSettings):
     class NapariConfig:
         # Napari specific configuration
         preferences_exclude = ['schema_version']
+        preferences_managed = [
+            "schema_version",
+        ]
 
 
 CORE_SETTINGS = [AppearanceSettings, ApplicationSettings, PluginsSettings]
