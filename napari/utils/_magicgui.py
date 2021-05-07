@@ -10,8 +10,18 @@ of those custom classes, magicgui will know what to do with it.
 
 """
 import weakref
-from functools import lru_cache
-from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Type
+from concurrent.futures import Future
+from functools import lru_cache, partial
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    List,
+    Optional,
+    Set,
+    Tuple,
+    Type,
+    get_args,
+)
 
 from .. import layers, types
 from ..layers._source import Source, layer_source
@@ -67,20 +77,22 @@ def register_types_with_magicgui():
         layers.Layer, choices=get_layers, return_callback=add_layer_to_viewer
     )
     register_type(Viewer, bind=find_viewer_ancestor)
-    register_type(
-        types.LayerDataTuple,
-        return_callback=add_layer_data_tuples_to_viewer,
-    )
-    register_type(
-        List[types.LayerDataTuple],
-        return_callback=add_layer_data_tuples_to_viewer,
-    )
+
+    for _type in (types.LayerDataTuple, List[types.LayerDataTuple]):
+        register_type(_type, return_callback=add_layer_data_tuples_to_viewer)
+        register_type(Future[_type], return_callback=add_future_data)  # type: ignore
+
     for layer_name in layers.NAMES:
         data_type = getattr(types, f'{layer_name.title()}Data')
         register_type(
             data_type,
             choices=get_layers_data,
             return_callback=add_layer_data_to_viewer,
+        )
+        register_type(
+            Future[data_type],  # type: ignore
+            choices=get_layers_data,
+            return_callback=partial(add_future_data, _from_tuple=False),
         )
 
 
@@ -112,7 +124,6 @@ def add_layer_data_to_viewer(gui, result, return_type):
     ...     return np.random.rand(256, 256)
 
     """
-
     if result is None:
         return
 
@@ -200,6 +211,61 @@ def add_layer_data_tuples_to_viewer(gui, result, return_type):
                     pass
             # otherwise create a new layer from the layer data
             viewer._add_layer_from_data(*layer_datum)
+
+
+_FUTURES: Set[Future] = set()
+
+
+def add_future_data(gui, future, return_type, _from_tuple=True):
+    """Process a Future object from a magicgui widget.
+
+    This function will be called when a magicgui-decorated function has a
+    return annotation of one of the `napari.types.<layer_name>Data` ... and
+    will add the data in ``result`` to the current viewer as the corresponding
+    layer type.
+
+    Parameters
+    ----------
+    gui : FunctionGui
+        The instantiated magicgui widget.  May or may not be docked in a
+        dock widget.
+    future : Future
+        An instance of `concurrent.futures.Future` (or any third-party) object
+        with the same interface, that provides `add_done_callback` and `result`
+        methods.  When the future is `done()`, the `result()` will be added
+        to the viewer.
+    return_type : type
+        The return annotation that was used in the decorated function.
+    _from_tuple : bool, optional
+        (only for internal use). True if the future returns `LayerDataTuple`,
+        False if it returns one of the `LayerData` types.
+    """
+    from .._qt.utils import Sentry
+
+    # get the actual return type from the Future type annotation
+    _return_type = get_args(return_type)[0]
+
+    if _from_tuple:
+        # when the future is done, add layer data to viewer, dispatching
+        # to the appropriate method based on the Future data type.
+
+        def _on_future_ready():
+            add_layer_data_tuples_to_viewer(gui, future.result(), return_type)
+            _FUTURES.remove(future)
+
+    else:
+
+        def _on_future_ready():
+            add_layer_data_to_viewer(gui, future.result(), _return_type)
+            _FUTURES.remove(future)
+
+    # some future types (such as a dask Future) will call the callback in
+    # another thread, which wont always work here.  So we create a very small
+    # QObject that can signal back to the main thread to call `_on_done`.
+    sentry = Sentry()
+    sentry.alerted.connect(_on_future_ready)
+    future.add_done_callback(sentry.alert)
+    _FUTURES.add(future)
 
 
 def find_viewer_ancestor(widget) -> Optional[Viewer]:
