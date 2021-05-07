@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.interpolate import CubicSpline
 
 from ....utils.translations import trans
 from .._shapes_utils import create_box
@@ -39,7 +40,7 @@ class PolygonBase(Shape):
         closed=True,
         name='polygon',
     ):
-
+        self._interpolate = True
         super().__init__(
             edge_width=edge_width,
             z_index=z_index,
@@ -77,9 +78,33 @@ class PolygonBase(Shape):
 
     def _update_displayed_data(self):
         """Update the data that is to be displayed."""
-        # For path connect every all data
+        # Raw vertices
+        data = self.data_displayed
+
+        if len(data) > 2 and self._interpolate:
+            # Interpolate along distance
+            distance = np.cumsum(
+                np.sqrt(
+                    np.sum(
+                        np.diff(data, axis=0) ** 2,
+                        axis=1,
+                    )
+                )
+            )
+            # NEED TO DEDUPLICATE POINTS!!!!!!
+            distance[-1] = distance[-1] + 0.1
+            distance = np.insert(distance, 0, 0) / distance[-1]
+
+            # the number of sampled data points might need to be carefully thought
+            # about (might need to change with image scale?)
+            alpha = np.linspace(0, 1, 75)
+            spl = CubicSpline(distance, data)
+            points_for_mesh = spl(alpha)
+        else:
+            points_for_mesh = data
+
         self._set_meshes(
-            self.data_displayed, face=self._filled, closed=self._closed
+            points_for_mesh, face=self._filled, closed=self._closed
         )
         self._box = create_box(self.data_displayed)
 
